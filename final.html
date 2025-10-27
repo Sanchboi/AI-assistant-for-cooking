@@ -1,0 +1,1436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Recipe Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom animations for smooth transitions */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .typing-indicator {
+            display: inline-flex;
+            gap: 4px;
+        }
+        
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #9ca3af;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+        
+        .chat-message {
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        
+        @media (max-width: 640px) {
+            .chat-message {
+                max-width: 85%;
+            }
+        }
+
+        .debug-panel {
+            transition: all 0.3s ease;
+        }
+
+        .debug-log-entry {
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+        }
+
+        /* Voice recording animation */
+        .recording-pulse {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.1);
+                opacity: 0.8;
+            }
+        }
+
+        .listening-indicator {
+            animation: listening 1s ease-in-out infinite;
+        }
+
+        @keyframes listening {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+            50% {
+                box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+            }
+        }
+
+        .speaking-indicator {
+            animation: speaking 1s ease-in-out infinite;
+        }
+
+        @keyframes speaking {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+            }
+            50% {
+                box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+            }
+        }
+
+        .standby-indicator {
+            animation: standby 2s ease-in-out infinite;
+        }
+
+        @keyframes standby {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
+            }
+            50% {
+                box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
+            }
+        }
+
+        .image-preview {
+            max-width: 200px;
+            max-height: 200px;
+            object-fit: cover;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-orange-50 to-amber-50 min-h-screen">
+    
+    <!-- Debug Toggle Button (Fixed Position) -->
+    <button 
+        id="debugToggle"
+        class="fixed top-4 right-4 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2 transition-all"
+        title="Toggle Debug Panel"
+    >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+        </svg>
+        Debug
+    </button>
+
+    <!-- Debug Panel (Collapsible) -->
+    <div id="debugPanel" class="fixed bottom-0 left-0 right-0 bg-gray-900 text-green-400 border-t-4 border-green-500 shadow-2xl z-40 debug-panel" style="max-height: 300px;">
+        <div class="flex justify-between items-center bg-gray-800 px-4 py-2 border-b border-gray-700">
+            <h3 class="font-bold text-sm">🐛 Debug Console</h3>
+            <div class="flex gap-2">
+                <button id="clearDebugBtn" class="text-xs bg-red-600 hover:bg-red-700 px-3 py-1 rounded">Clear</button>
+                <button id="closeDebugBtn" class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded">Hide</button>
+            </div>
+        </div>
+        <div id="debugLog" class="overflow-y-auto p-4 space-y-1" style="max-height: 250px;">
+            <div class="debug-log-entry text-gray-400">Debug console initialized. Waiting for events...</div>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container mx-auto px-4 py-8 max-w-4xl">
+        
+        <!-- Recipe Input View (Phase 1) -->
+        <div id="recipeInputView" class="fade-in">
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <h1 class="text-4xl md:text-5xl font-bold text-gray-800 mb-3">
+                    🍳 AI Recipe Assistant
+                </h1>
+                <p class="text-gray-600 text-lg">
+                    Your hands-free cooking companion with live voice conversation
+                </p>
+            </div>
+            
+            <!-- Input Form -->
+            <div class="bg-white rounded-2xl shadow-xl p-6 md:p-8">
+                <!-- Recipe Input -->
+                <div class="mb-6">
+                    <label for="recipeInput" class="block text-sm font-semibold text-gray-700 mb-2">
+                        Your Recipe
+                    </label>
+                    <textarea 
+                        id="recipeInput" 
+                        rows="12"
+                        placeholder="Paste your recipe here... Include ingredients, steps, and any notes."
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none text-gray-700"
+                    ></textarea>
+                    <p class="text-xs text-gray-500 mt-1">
+                        The AI will be your expert guide for this specific recipe
+                    </p>
+                </div>
+                
+                <!-- API Key Input -->
+                <div class="mb-6">
+                    <label for="apiKeyInput" class="block text-sm font-semibold text-gray-700 mb-2">
+                        Gemini API Key
+                    </label>
+                    <input 
+                        type="password" 
+                        id="apiKeyInput"
+                        placeholder="Enter your Google Gemini API key"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-700"
+                    >
+                    <p class="text-xs text-gray-500 mt-1">
+                        Get your free API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-orange-600 hover:underline">Google AI Studio</a>
+                    </p>
+                </div>
+                
+                <!-- Error Message -->
+                <div id="inputError" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <p class="text-sm text-red-600"></p>
+                </div>
+                
+                <!-- Start Button -->
+                <button 
+                    id="startButton"
+                    class="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold py-4 rounded-lg hover:from-orange-600 hover:to-amber-600 transition-all duration-200 shadow-md hover:shadow-lg"
+                >
+                    Start Cooking Assistant
+                </button>
+            </div>
+            
+            <!-- Info Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+                <div class="bg-white rounded-lg p-4 shadow-md">
+                    <div class="text-2xl mb-2">🗣️</div>
+                    <h3 class="font-semibold text-gray-800 mb-1">Live Conversation</h3>
+                    <p class="text-sm text-gray-600">AI listens and responds automatically</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow-md">
+                    <div class="text-2xl mb-2">📸</div>
+                    <h3 class="font-semibold text-gray-800 mb-1">Image Support</h3>
+                    <p class="text-sm text-gray-600">Upload photos of ingredients or steps</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow-md">
+                    <div class="text-2xl mb-2">🎤</div>
+                    <h3 class="font-semibold text-gray-800 mb-1">Wake Word</h3>
+                    <p class="text-sm text-gray-600">Say "Hey Chef" to wake from standby</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Chat Interface View (Phase 2) -->
+        <div id="chatView" class="hidden">
+            <!-- Header with Controls -->
+            <div class="bg-white rounded-t-2xl shadow-xl p-4 md:p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-800">🍳 Recipe Assistant</h2>
+                        <p class="text-sm text-gray-600">Your hands-free cooking companion</p>
+                    </div>
+                    <button 
+                        id="newRecipeButton"
+                        class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium px-4 py-2 rounded-lg transition-colors duration-200"
+                    >
+                        New Recipe
+                    </button>
+                </div>
+
+                <!-- Live Conversation Mode Toggle -->
+                <div class="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg px-4 py-3 mb-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-3">
+                            <div class="w-2 h-2 bg-purple-500 rounded-full" id="conversationModeIndicator"></div>
+                            <div>
+                                <p class="text-sm font-semibold text-gray-800">🎙️ Live Conversation Mode</p>
+                                <p class="text-xs text-gray-600">AI talks and listens continuously</p>
+                            </div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="conversationModeToggle" class="sr-only peer">
+                            <div class="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500"></div>
+                        </label>
+                    </div>
+                    <p class="text-xs text-gray-500 italic">💡 Wake word: "Hey Chef" or "Cooking Assistant"</p>
+                </div>
+
+                <!-- Conversation Status Indicators -->
+                <div id="statusContainer" class="space-y-2">
+                    <!-- Standby Status -->
+                    <div id="standbyStatus" class="hidden p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-3">
+                        <div class="w-3 h-3 bg-blue-500 rounded-full standby-indicator"></div>
+                        <div class="flex-1">
+                            <span class="text-sm text-blue-700 font-medium">💤 Standby Mode</span>
+                            <p class="text-xs text-blue-600">Say "Hey Chef" to activate</p>
+                        </div>
+                    </div>
+
+                    <!-- Listening Status -->
+                    <div id="listeningStatus" class="hidden p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
+                        <div class="w-3 h-3 bg-red-500 rounded-full listening-indicator"></div>
+                        <span class="text-sm text-red-700 font-medium">🎤 Listening for your question...</span>
+                    </div>
+
+                    <!-- Speaking Status -->
+                    <div id="speakingStatus" class="hidden p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
+                        <div class="w-3 h-3 bg-green-500 rounded-full speaking-indicator"></div>
+                        <span class="text-sm text-green-700 font-medium">🔊 AI is speaking...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Chat Messages Area -->
+            <div 
+                id="chatMessages" 
+                class="bg-white shadow-xl px-4 md:px-6 py-6 overflow-y-auto"
+                style="height: 500px;"
+            >
+                <!-- Messages will be dynamically added here -->
+            </div>
+            
+            <!-- Input Area -->
+            <div class="bg-white rounded-b-2xl shadow-xl p-4 md:p-6">
+                <!-- Image Preview -->
+                <div id="imagePreviewContainer" class="hidden mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div class="flex items-start gap-3">
+                        <img id="imagePreview" class="image-preview rounded-lg" alt="Uploaded image">
+                        <div class="flex-1">
+                            <p class="text-sm font-semibold text-gray-800">📸 Image attached</p>
+                            <p class="text-xs text-gray-600" id="imageFileName"></p>
+                        </div>
+                        <button id="removeImageBtn" class="text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded">
+                            Remove
+                        </button>
+                    </div>
+                </div>
+
+                <form id="chatForm" class="flex gap-2">
+                    <input 
+                        type="text" 
+                        id="userMessageInput"
+                        placeholder="Type a message or use voice..."
+                        class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-700"
+                        autocomplete="off"
+                    >
+                    <input 
+                        type="file" 
+                        id="imageInput" 
+                        accept="image/*" 
+                        class="hidden"
+                    >
+                    <button 
+                        type="button"
+                        id="imageButton"
+                        class="bg-blue-100 hover:bg-blue-200 text-blue-700 font-semibold px-4 py-3 rounded-lg transition-all duration-200"
+                        title="Upload Image"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                        </svg>
+                    </button>
+                    <button 
+                        type="button"
+                        id="voiceButton"
+                        class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold px-4 py-3 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Push to Talk"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                        </svg>
+                    </button>
+                    <button 
+                        type="submit"
+                        id="sendButton"
+                        class="bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold px-6 py-3 rounded-lg hover:from-orange-600 hover:to-amber-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        Send
+                    </button>
+                </form>
+                
+                <!-- Browser Support Notice -->
+                <p id="voiceNotSupported" class="hidden text-xs text-amber-600 mt-2">
+                    ⚠️ Voice features are not supported in your browser. Please use Chrome, Edge, or Safari.
+                </p>
+            </div>
+        </div>
+        
+    </div>
+
+    <script>
+        /**
+         * LiveConversationManager Class
+         * Manages the continuous conversation loop
+         */
+        class LiveConversationManager {
+            constructor(voiceManager, ttsManager) {
+                this.voiceManager = voiceManager;
+                this.ttsManager = ttsManager;
+                this.isActive = false;
+                this.isInStandby = false;
+                this.wakeWords = ['hey chef', 'cooking assistant', 'hey cooking assistant'];
+                this.onUserMessage = null;
+                this.onStateChange = null;
+                
+                debugLogger.success('LiveConversationManager initialized', { 
+                    wakeWords: this.wakeWords 
+                });
+            }
+
+            start() {
+                if (!this.voiceManager.isSupported) {
+                    debugLogger.error('Cannot start live conversation - voice not supported');
+                    return false;
+                }
+
+                this.isActive = true;
+                this.enterStandby();
+                debugLogger.success('Live conversation mode started');
+                return true;
+            }
+
+            stop() {
+                this.isActive = false;
+                this.isInStandby = false;
+                this.voiceManager.stop();
+                this.ttsManager.stop();
+                this.updateState('idle');
+                debugLogger.info('Live conversation mode stopped');
+            }
+
+            enterStandby() {
+                if (!this.isActive) return;
+
+                this.isInStandby = true;
+                this.updateState('standby');
+                this.startListeningForWakeWord();
+                debugLogger.info('Entered standby mode');
+            }
+
+            exitStandby() {
+                this.isInStandby = false;
+                this.startActiveListening();
+                debugLogger.info('Exited standby mode');
+            }
+
+            startListeningForWakeWord() {
+                if (!this.isActive) return;
+
+                this.voiceManager.recognition.continuous = true;
+                this.voiceManager.onResult = (transcript, isFinal) => {
+                    const lowerTranscript = transcript.toLowerCase();
+                    
+                    // Check for wake word
+                    const wakeWordDetected = this.wakeWords.some(word => 
+                        lowerTranscript.includes(word)
+                    );
+
+                    if (wakeWordDetected) {
+                        debugLogger.success('Wake word detected!', { transcript });
+                        this.voiceManager.stop();
+                        
+                        // Brief acknowledgment
+                        this.ttsManager.speak(
+                            "Yes, I'm listening!",
+                            () => {
+                                this.exitStandby();
+                            }
+                        );
+                        this.updateState('speaking');
+                    }
+                };
+
+                this.voiceManager.start();
+            }
+
+            startActiveListening() {
+                if (!this.isActive) return;
+
+                this.voiceManager.recognition.continuous = false;
+                this.updateState('listening');
+
+                let finalTranscript = '';
+
+                this.voiceManager.onResult = (transcript, isFinal) => {
+                    if (isFinal) {
+                        finalTranscript = transcript;
+                    }
+                };
+
+                this.voiceManager.onError = (error) => {
+                    debugLogger.error('Voice error during active listening', { error });
+                    if (this.isActive && error !== 'no-speech') {
+                        // Retry listening after error
+                        setTimeout(() => {
+                            if (this.isActive && !this.isInStandby) {
+                                this.startActiveListening();
+                            }
+                        }, 1000);
+                    }
+                };
+
+                // Override the onend to handle the finalized transcript
+                const originalOnEnd = this.voiceManager.recognition.onend;
+                this.voiceManager.recognition.onend = () => {
+                    debugLogger.info('Active listening ended', { finalTranscript });
+                    
+                    if (finalTranscript && this.onUserMessage) {
+                        this.onUserMessage(finalTranscript);
+                    } else if (this.isActive && !this.isInStandby) {
+                        // No speech detected, go back to standby
+                        this.enterStandby();
+                    }
+                };
+
+                this.voiceManager.start();
+            }
+
+            handleAIResponse(responseText) {
+                if (!this.isActive) return;
+
+                this.updateState('speaking');
+                this.ttsManager.speak(
+                    responseText,
+                    () => {
+                        // After AI finishes speaking, start listening again
+                        if (this.isActive) {
+                            debugLogger.info('AI finished speaking, resuming listening');
+                            setTimeout(() => {
+                                this.startActiveListening();
+                            }, 500);
+                        }
+                    },
+                    (error) => {
+                        debugLogger.error('TTS error', { error });
+                        if (this.isActive) {
+                            this.enterStandby();
+                        }
+                    }
+                );
+            }
+
+            updateState(state) {
+                if (this.onStateChange) {
+                    this.onStateChange(state);
+                }
+                debugLogger.info('Conversation state changed', { state });
+            }
+        }
+
+        /**
+         * TextToSpeechManager Class
+         */
+        class TextToSpeechManager {
+            constructor() {
+                this.synthesis = window.speechSynthesis;
+                this.isSpeaking = false;
+                this.currentUtterance = null;
+                this.voices = [];
+                
+                this.loadVoices();
+                if (this.synthesis.onvoiceschanged !== undefined) {
+                    this.synthesis.onvoiceschanged = () => this.loadVoices();
+                }
+                
+                debugLogger.success('TextToSpeechManager initialized');
+            }
+
+            loadVoices() {
+                this.voices = this.synthesis.getVoices();
+                debugLogger.info('Loaded TTS voices', { count: this.voices.length });
+            }
+
+            speak(text, onEnd = null, onError = null) {
+                this.stop();
+
+                this.currentUtterance = new SpeechSynthesisUtterance(text);
+                
+                const preferredVoices = this.voices.filter(voice => 
+                    voice.lang.startsWith('en') && 
+                    (voice.name.includes('Google') || voice.name.includes('Natural'))
+                );
+                
+                if (preferredVoices.length > 0) {
+                    this.currentUtterance.voice = preferredVoices[0];
+                }
+
+                this.currentUtterance.rate = 1.0;
+                this.currentUtterance.pitch = 1.0;
+                this.currentUtterance.volume = 1.0;
+
+                this.currentUtterance.onstart = () => {
+                    this.isSpeaking = true;
+                    debugLogger.success('Started speaking', { textLength: text.length });
+                };
+
+                this.currentUtterance.onend = () => {
+                    this.isSpeaking = false;
+                    debugLogger.info('Finished speaking');
+                    if (onEnd) onEnd();
+                };
+
+                this.currentUtterance.onerror = (event) => {
+                    this.isSpeaking = false;
+                    debugLogger.error('TTS error', { error: event.error });
+                    if (onError) onError(event.error);
+                };
+
+                this.synthesis.speak(this.currentUtterance);
+                debugLogger.api('Speaking text', { length: text.length });
+            }
+
+            stop() {
+                if (this.isSpeaking) {
+                    this.synthesis.cancel();
+                    this.isSpeaking = false;
+                    debugLogger.info('Stopped speaking');
+                }
+            }
+        }
+
+        /**
+         * VoiceRecognitionManager Class
+         */
+        class VoiceRecognitionManager {
+            constructor() {
+                this.recognition = null;
+                this.isListening = false;
+                this.isSupported = false;
+                this.onResult = null;
+                this.onError = null;
+                
+                this.initializeRecognition();
+            }
+
+            initializeRecognition() {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                
+                if (!SpeechRecognition) {
+                    debugLogger.warning('Speech recognition not supported in this browser');
+                    this.isSupported = false;
+                    return;
+                }
+
+                this.isSupported = true;
+                this.recognition = new SpeechRecognition();
+                
+                this.recognition.continuous = false;
+                this.recognition.interimResults = true;
+                this.recognition.lang = 'en-US';
+                this.recognition.maxAlternatives = 1;
+
+                this.recognition.onstart = () => {
+                    debugLogger.success('Voice recognition started');
+                    this.isListening = true;
+                };
+
+                this.recognition.onresult = (event) => {
+                    const transcript = Array.from(event.results)
+                        .map(result => result[0].transcript)
+                        .join('');
+                    
+                    debugLogger.info('Voice input received', { transcript });
+                    
+                    if (this.onResult) {
+                        this.onResult(transcript, event.results[0].isFinal);
+                    }
+                };
+
+                this.recognition.onerror = (event) => {
+                    debugLogger.error('Voice recognition error', { error: event.error });
+                    this.isListening = false;
+                    
+                    if (this.onError) {
+                        this.onError(event.error);
+                    }
+                };
+
+                this.recognition.onend = () => {
+                    debugLogger.info('Voice recognition ended');
+                    this.isListening = false;
+                };
+
+                debugLogger.success('Voice recognition initialized');
+            }
+
+            start() {
+                if (!this.isSupported) {
+                    debugLogger.error('Cannot start voice recognition - not supported');
+                    return false;
+                }
+
+                if (this.isListening) {
+                    debugLogger.warning('Voice recognition already listening');
+                    return false;
+                }
+
+                try {
+                    this.recognition.start();
+                    return true;
+                } catch (error) {
+                    debugLogger.error('Error starting voice recognition', error);
+                    return false;
+                }
+            }
+
+            stop() {
+                if (!this.isSupported || !this.isListening) {
+                    return;
+                }
+
+                try {
+                    this.recognition.stop();
+                    this.isListening = false;
+                    debugLogger.info('Voice recognition stopped manually');
+                } catch (error) {
+                    debugLogger.error('Error stopping voice recognition', error);
+                }
+            }
+        }
+
+        /**
+         * DebugLogger Class
+         */
+        class DebugLogger {
+            constructor() {
+                this.logContainer = document.getElementById('debugLog');
+                this.debugPanel = document.getElementById('debugPanel');
+                this.logs = [];
+                this.maxLogs = 100;
+            }
+
+            log(type, message, data = null) {
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = { type, message, data, timestamp };
+                this.logs.push(logEntry);
+
+                if (this.logs.length > this.maxLogs) {
+                    this.logs.shift();
+                }
+
+                this.render();
+                console.log(`[${type}] ${message}`, data || '');
+            }
+
+            info(message, data = null) {
+                this.log('INFO', message, data);
+            }
+
+            success(message, data = null) {
+                this.log('SUCCESS', message, data);
+            }
+
+            error(message, data = null) {
+                this.log('ERROR', message, data);
+            }
+
+            warning(message, data = null) {
+                this.log('WARNING', message, data);
+            }
+
+            api(message, data = null) {
+                this.log('API', message, data);
+            }
+
+            render() {
+                const logsHtml = this.logs.map(log => {
+                    const colors = {
+                        'INFO': 'text-blue-400',
+                        'SUCCESS': 'text-green-400',
+                        'ERROR': 'text-red-400',
+                        'WARNING': 'text-yellow-400',
+                        'API': 'text-purple-400'
+                    };
+
+                    const color = colors[log.type] || 'text-gray-400';
+                    const dataStr = log.data ? `\n${JSON.stringify(log.data, null, 2)}` : '';
+
+                    return `<div class="debug-log-entry ${color}">
+                        <span class="text-gray-500">[${log.timestamp}]</span>
+                        <span class="font-bold">[${log.type}]</span>
+                        ${log.message}${dataStr ? `<pre class="ml-4 mt-1 text-xs text-gray-400">${dataStr}</pre>` : ''}
+                    </div>`;
+                }).join('');
+
+                this.logContainer.innerHTML = logsHtml || '<div class="debug-log-entry text-gray-400">No logs yet...</div>';
+                this.logContainer.scrollTop = this.logContainer.scrollHeight;
+            }
+
+            clear() {
+                this.logs = [];
+                this.render();
+                this.info('Debug log cleared');
+            }
+
+            toggle() {
+                this.debugPanel.classList.toggle('hidden');
+            }
+
+            show() {
+                this.debugPanel.classList.remove('hidden');
+            }
+
+            hide() {
+                this.debugPanel.classList.add('hidden');
+            }
+        }
+
+        const debugLogger = new DebugLogger();
+
+        /**
+         * GeminiAPIManager Class
+         */
+        class GeminiAPIManager {
+            constructor(apiKey) {
+                this.apiKey = apiKey;
+                this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent';
+                debugLogger.success('GeminiAPIManager initialized');
+            }
+            
+            async sendMessage(recipe, conversationHistory, userMessage, imageData = null) {
+                debugLogger.api('Sending message to Gemini API', { 
+                    userMessage, 
+                    hasImage: !!imageData 
+                });
+                
+                try {
+                    const systemPrompt = `You are a friendly and expert cooking assistant. The user has provided the following recipe:
+
+\`\`\`
+${recipe}
+\`\`\`
+
+Your sole purpose is to answer the user's questions about this specific recipe. Be helpful, encouraging, and clear in your explanations. Keep responses concise for voice conversation - aim for 2-3 sentences unless more detail is specifically requested.`;
+
+                    const contents = [
+                        {
+                            role: 'user',
+                            parts: [{ text: systemPrompt }]
+                        },
+                        {
+                            role: 'model',
+                            parts: [{ text: 'I understand! I\'m ready to help you with this recipe. What would you like to know?' }]
+                        }
+                    ];
+                    
+                    conversationHistory.forEach(message => {
+                        contents.push(message);
+                    });
+                    
+                    const userParts = [];
+                    if (userMessage) {
+                        userParts.push({ text: userMessage });
+                    }
+                    if (imageData) {
+                        userParts.push({
+                            inline_data: {
+                                mime_type: imageData.mimeType,
+                                data: imageData.base64
+                            }
+                        });
+                    }
+                    
+                    contents.push({
+                        role: 'user',
+                        parts: userParts
+                    });
+                    
+                    const requestBody = {
+                        contents: contents,
+                        generationConfig: {
+                            temperature: 0.7,
+                            topK: 40,
+                            topP: 0.95,
+                            maxOutputTokens: 512,
+                        },
+                        safetySettings: [
+                            {
+                                category: "HARM_CATEGORY_HARASSMENT",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                            },
+                            {
+                                category: "HARM_CATEGORY_HATE_SPEECH",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                            },
+                            {
+                                category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                            },
+                            {
+                                category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                            }
+                        ]
+                    };
+                    
+                    const response = await fetch(`${this.baseUrl}?key=${this.apiKey}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(requestBody)
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(`API request failed: ${response.status} - ${data.error?.message || 'Unknown error'}`);
+                    }
+                    
+                    if (!data.candidates || data.candidates.length === 0) {
+                        throw new Error('No response generated.');
+                    }
+                    
+                    const aiResponse = data.candidates[0].content?.parts?.[0]?.text;
+                    
+                    if (!aiResponse) {
+                        throw new Error('No text content in API response.');
+                    }
+                    
+                    debugLogger.success('AI response received', { length: aiResponse.length });
+                    return aiResponse;
+                    
+                } catch (error) {
+                    debugLogger.error('Error in sendMessage', { message: error.message });
+                    throw error;
+                }
+            }
+        }
+        
+        /**
+         * ChatInterface Class
+         */
+        class ChatInterface {
+            constructor() {
+                this.messagesContainer = document.getElementById('chatMessages');
+                this.userInput = document.getElementById('userMessageInput');
+                this.sendButton = document.getElementById('sendButton');
+                this.voiceButton = document.getElementById('voiceButton');
+                this.imageButton = document.getElementById('imageButton');
+                this.imageInput = document.getElementById('imageInput');
+                this.chatForm = document.getElementById('chatForm');
+                this.standbyStatus = document.getElementById('standbyStatus');
+                this.listeningStatus = document.getElementById('listeningStatus');
+                this.speakingStatus = document.getElementById('speakingStatus');
+                this.imagePreviewContainer = document.getElementById('imagePreviewContainer');
+                this.imagePreview = document.getElementById('imagePreview');
+                this.imageFileName = document.getElementById('imageFileName');
+                this.removeImageBtn = document.getElementById('removeImageBtn');
+                debugLogger.success('ChatInterface initialized');
+            }
+            
+            addUserMessage(message, imageUrl = null) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'flex justify-end mb-4 fade-in';
+                
+                let imageHtml = '';
+                if (imageUrl) {
+                    imageHtml = `<img src="${imageUrl}" class="image-preview rounded-lg mb-2" alt="User uploaded image">`;
+                }
+                
+                messageDiv.innerHTML = `
+                    <div class="chat-message bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-2xl rounded-tr-none px-4 py-3 shadow-md">
+                        ${imageHtml}
+                        ${message ? `<p class="text-sm md:text-base">${this.escapeHtml(message)}</p>` : ''}
+                    </div>
+                `;
+                this.messagesContainer.appendChild(messageDiv);
+                this.scrollToBottom();
+            }
+            
+            addAIMessage(message) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'flex justify-start mb-4 fade-in';
+                messageDiv.innerHTML = `
+                    <div class="chat-message bg-gray-100 text-gray-800 rounded-2xl rounded-tl-none px-4 py-3 shadow-md">
+                        <p class="text-sm md:text-base whitespace-pre-wrap">${this.escapeHtml(message)}</p>
+                    </div>
+                `;
+                this.messagesContainer.appendChild(messageDiv);
+                this.scrollToBottom();
+            }
+            
+            showTypingIndicator() {
+                const typingDiv = document.createElement('div');
+                typingDiv.id = 'typingIndicator';
+                typingDiv.className = 'flex justify-start mb-4';
+                typingDiv.innerHTML = `
+                    <div class="bg-gray-100 rounded-2xl rounded-tl-none px-4 py-3 shadow-md">
+                        <div class="typing-indicator">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                `;
+                this.messagesContainer.appendChild(typingDiv);
+                this.scrollToBottom();
+            }
+            
+            removeTypingIndicator() {
+                const indicator = document.getElementById('typingIndicator');
+                if (indicator) indicator.remove();
+            }
+            
+            showError(errorMessage) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'flex justify-center mb-4 fade-in';
+                errorDiv.innerHTML = `
+                    <div class="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 shadow-md max-w-md">
+                        <p class="text-sm"><strong>Error:</strong> ${this.escapeHtml(errorMessage)}</p>
+                    </div>
+                `;
+                this.messagesContainer.appendChild(errorDiv);
+                this.scrollToBottom();
+            }
+
+            updateConversationState(state) {
+                // Hide all states
+                this.standbyStatus.classList.add('hidden');
+                this.listeningStatus.classList.add('hidden');
+                this.speakingStatus.classList.add('hidden');
+
+                // Show appropriate state
+                if (state === 'standby') {
+                    this.standbyStatus.classList.remove('hidden');
+                } else if (state === 'listening') {
+                    this.listeningStatus.classList.remove('hidden');
+                } else if (state === 'speaking') {
+                    this.speakingStatus.classList.remove('hidden');
+                }
+            }
+            
+            clearMessages() {
+                this.messagesContainer.innerHTML = '';
+            }
+            
+            setSendButtonEnabled(enabled) {
+                this.sendButton.disabled = !enabled;
+                this.userInput.disabled = !enabled;
+            }
+
+            setVoiceButtonEnabled(enabled) {
+                this.voiceButton.disabled = !enabled;
+            }
+
+            setImageButtonEnabled(enabled) {
+                this.imageButton.disabled = !enabled;
+            }
+
+            showImagePreview(imageData, fileName) {
+                this.imagePreview.src = imageData;
+                this.imageFileName.textContent = fileName;
+                this.imagePreviewContainer.classList.remove('hidden');
+            }
+
+            hideImagePreview() {
+                this.imagePreviewContainer.classList.add('hidden');
+                this.imagePreview.src = '';
+                this.imageFileName.textContent = '';
+            }
+            
+            getUserInput() {
+                return this.userInput.value.trim();
+            }
+            
+            setUserInput(text) {
+                this.userInput.value = text;
+            }
+
+            clearUserInput() {
+                this.userInput.value = '';
+            }
+            
+            scrollToBottom() {
+                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+            }
+            
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        }
+        
+        /**
+         * RecipeAssistantApp Class
+         */
+        class RecipeAssistantApp {
+            constructor() {
+                this.recipe = null;
+                this.apiKey = null;
+                this.apiManager = null;
+                this.chatInterface = null;
+                this.voiceManager = null;
+                this.ttsManager = null;
+                this.liveConversation = null;
+                this.conversationHistory = [];
+                this.currentImage = null;
+                this.isProcessing = false;
+                
+                this.recipeInputView = document.getElementById('recipeInputView');
+                this.chatView = document.getElementById('chatView');
+                this.recipeInput = document.getElementById('recipeInput');
+                this.apiKeyInput = document.getElementById('apiKeyInput');
+                this.startButton = document.getElementById('startButton');
+                this.newRecipeButton = document.getElementById('newRecipeButton');
+                this.inputError = document.getElementById('inputError');
+                this.conversationModeToggle = document.getElementById('conversationModeToggle');
+                
+                this.initializeEventListeners();
+                debugLogger.success('RecipeAssistantApp initialized');
+            }
+            
+            initializeEventListeners() {
+                this.startButton.addEventListener('click', () => this.handleStart());
+                this.newRecipeButton.addEventListener('click', () => this.handleNewRecipe());
+                
+                const chatForm = document.getElementById('chatForm');
+                chatForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.handleSendMessage();
+                });
+            }
+
+            initializeVoiceFeature() {
+                this.voiceManager = new VoiceRecognitionManager();
+                this.ttsManager = new TextToSpeechManager();
+                this.liveConversation = new LiveConversationManager(
+                    this.voiceManager,
+                    this.ttsManager
+                );
+                
+                if (!this.voiceManager.isSupported) {
+                    document.getElementById('voiceNotSupported').classList.remove('hidden');
+                    this.chatInterface.setVoiceButtonEnabled(false);
+                    return;
+                }
+
+                // Conversation mode toggle
+                this.conversationModeToggle.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        this.liveConversation.start();
+                    } else {
+                        this.liveConversation.stop();
+                        this.chatInterface.updateConversationState('idle');
+                    }
+                });
+
+                // Live conversation callbacks
+                this.liveConversation.onUserMessage = (message) => {
+                    this.handleVoiceMessage(message);
+                };
+
+                this.liveConversation.onStateChange = (state) => {
+                    this.chatInterface.updateConversationState(state);
+                };
+
+                // Manual voice button (push-to-talk when not in live mode)
+                this.chatInterface.voiceButton.addEventListener('click', () => {
+                    if (!this.conversationModeToggle.checked) {
+                        this.handleManualVoiceInput();
+                    }
+                });
+
+                // Image upload
+                this.chatInterface.imageButton.addEventListener('click', () => {
+                    this.chatInterface.imageInput.click();
+                });
+
+                this.chatInterface.imageInput.addEventListener('change', (e) => {
+                    this.handleImageUpload(e);
+                });
+
+                this.chatInterface.removeImageBtn.addEventListener('click', () => {
+                    this.currentImage = null;
+                    this.chatInterface.hideImagePreview();
+                    this.chatInterface.imageInput.value = '';
+                });
+
+                debugLogger.success('Voice features initialized');
+            }
+
+            handleManualVoiceInput() {
+                if (this.voiceManager.isListening) {
+                    this.voiceManager.stop();
+                } else {
+                    this.voiceManager.onResult = (transcript, isFinal) => {
+                        this.chatInterface.setUserInput(transcript);
+                        if (isFinal) {
+                            debugLogger.success('Manual voice input complete');
+                        }
+                    };
+                    this.voiceManager.start();
+                }
+            }
+
+            async handleVoiceMessage(message) {
+                if (this.isProcessing) {
+                    debugLogger.warning('Already processing a message');
+                    return;
+                }
+
+                this.isProcessing = true;
+                debugLogger.info('Processing voice message', { message });
+
+                this.chatInterface.addUserMessage(message);
+                this.chatInterface.showTypingIndicator();
+
+                try {
+                    const aiResponse = await this.apiManager.sendMessage(
+                        this.recipe,
+                        this.conversationHistory,
+                        message
+                    );
+
+                    this.chatInterface.removeTypingIndicator();
+                    this.chatInterface.addAIMessage(aiResponse);
+
+                    // Update history
+                    this.conversationHistory.push({
+                        role: 'user',
+                        parts: [{ text: message }]
+                    });
+                    this.conversationHistory.push({
+                        role: 'model',
+                        parts: [{ text: aiResponse }]
+                    });
+
+                    // Speak response and continue conversation
+                    this.liveConversation.handleAIResponse(aiResponse);
+
+                } catch (error) {
+                    this.chatInterface.removeTypingIndicator();
+                    this.chatInterface.showError('Sorry, I had trouble processing that. Please try again.');
+                    debugLogger.error('Error processing voice message', { error: error.message });
+                    
+                    // Return to standby on error
+                    if (this.liveConversation.isActive) {
+                        setTimeout(() => {
+                            this.liveConversation.enterStandby();
+                        }, 2000);
+                    }
+                } finally {
+                    this.isProcessing = false;
+                }
+            }
+
+            async handleImageUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                if (file.size > 4 * 1024 * 1024) {
+                    this.chatInterface.showError('Image is too large. Please select an image under 4MB.');
+                    return;
+                }
+
+                try {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const base64Data = e.target.result.split(',')[1];
+                        this.currentImage = {
+                            base64: base64Data,
+                            mimeType: file.type,
+                            dataUrl: e.target.result,
+                            name: file.name
+                        };
+                        
+                        this.chatInterface.showImagePreview(e.target.result, file.name);
+                        debugLogger.success('Image loaded', { name: file.name });
+                    };
+                    reader.readAsDataURL(file);
+                } catch (error) {
+                    this.chatInterface.showError('Failed to load image. Please try again.');
+                }
+            }
+            
+            handleStart() {
+                const recipe = this.recipeInput.value.trim();
+                const apiKey = this.apiKeyInput.value.trim();
+                
+                if (!recipe) {
+                    this.showInputError('Please paste a recipe before starting.');
+                    return;
+                }
+                
+                if (!apiKey) {
+                    this.showInputError('Please enter your Gemini API key.');
+                    return;
+                }
+                
+                this.recipe = recipe;
+                this.apiKey = apiKey;
+                
+                this.apiManager = new GeminiAPIManager(this.apiKey);
+                this.chatInterface = new ChatInterface();
+                this.initializeVoiceFeature();
+                
+                this.showChatView();
+            }
+            
+            async handleSendMessage() {
+                const message = this.chatInterface.getUserInput();
+                const hasImage = !!this.currentImage;
+                
+                if (!message && !hasImage) return;
+                
+                // Pause live conversation if active
+                const wasInLiveMode = this.liveConversation?.isActive;
+                if (wasInLiveMode) {
+                    this.liveConversation.stop();
+                    this.chatInterface.updateConversationState('idle');
+                }
+
+                this.chatInterface.setSendButtonEnabled(false);
+                this.chatInterface.setVoiceButtonEnabled(false);
+                this.chatInterface.setImageButtonEnabled(false);
+                
+                this.chatInterface.addUserMessage(
+                    message, 
+                    hasImage ? this.currentImage.dataUrl : null
+                );
+                this.chatInterface.clearUserInput();
+                
+                const imageData = hasImage ? {
+                    base64: this.currentImage.base64,
+                    mimeType: this.currentImage.mimeType
+                } : null;
+                
+                if (hasImage) {
+                    this.currentImage = null;
+                    this.chatInterface.hideImagePreview();
+                    this.chatInterface.imageInput.value = '';
+                }
+                
+                this.chatInterface.showTypingIndicator();
+                
+                try {
+                    const aiResponse = await this.apiManager.sendMessage(
+                        this.recipe,
+                        this.conversationHistory,
+                        message || 'What do you see in this image?',
+                        imageData
+                    );
+                    
+                    this.chatInterface.removeTypingIndicator();
+                    this.chatInterface.addAIMessage(aiResponse);
+                    
+                    const userParts = [{ text: message || 'What do you see in this image?' }];
+                    if (imageData) {
+                        userParts.push({
+                            inline_data: {
+                                mime_type: imageData.mimeType,
+                                data: imageData.base64
+                            }
+                        });
+                    }
+                    
+                    this.conversationHistory.push({
+                        role: 'user',
+                        parts: userParts
+                    });
+                    this.conversationHistory.push({
+                        role: 'model',
+                        parts: [{ text: aiResponse }]
+                    });
+                    
+                    // Resume live conversation if it was active
+                    if (wasInLiveMode) {
+                        this.conversationModeToggle.checked = true;
+                        this.liveConversation.start();
+                    }
+                    
+                } catch (error) {
+                    this.chatInterface.removeTypingIndicator();
+                    this.chatInterface.showError('An error occurred. Please try again.');
+                } finally {
+                    this.chatInterface.setSendButtonEnabled(true);
+                    this.chatInterface.setVoiceButtonEnabled(true);
+                    this.chatInterface.setImageButtonEnabled(true);
+                    document.getElementById('userMessageInput').focus();
+                }
+            }
+            
+            handleNewRecipe() {
+                if (this.liveConversation) {
+                    this.liveConversation.stop();
+                }
+                if (this.ttsManager) {
+                    this.ttsManager.stop();
+                }
+                
+                this.recipe = null;
+                this.apiKey = null;
+                this.apiManager = null;
+                this.voiceManager = null;
+                this.ttsManager = null;
+                this.liveConversation = null;
+                this.conversationHistory = [];
+                this.currentImage = null;
+                
+                this.recipeInput.value = '';
+                this.apiKeyInput.value = '';
+                this.hideInputError();
+                
+                if (this.chatInterface) {
+                    this.chatInterface.clearMessages();
+                    this.chatInterface.hideImagePreview();
+                }
+                
+                this.showRecipeInputView();
+            }
+            
+            showRecipeInputView() {
+                this.recipeInputView.classList.remove('hidden');
+                this.chatView.classList.add('hidden');
+                this.recipeInput.focus();
+            }
+            
+            showChatView() {
+                this.recipeInputView.classList.add('hidden');
+                this.chatView.classList.remove('hidden');
+                document.getElementById('userMessageInput').focus();
+            }
+            
+            showInputError(message) {
+                this.inputError.classList.remove('hidden');
+                this.inputError.querySelector('p').textContent = message;
+            }
+            
+            hideInputError() {
+                this.inputError.classList.add('hidden');
+            }
+        }
+        
+        // Debug panel controls
+        document.getElementById('debugToggle').addEventListener('click', () => {
+            debugLogger.toggle();
+        });
+
+        document.getElementById('closeDebugBtn').addEventListener('click', () => {
+            debugLogger.hide();
+        });
+
+        document.getElementById('clearDebugBtn').addEventListener('click', () => {
+            debugLogger.clear();
+        });
+        
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            debugLogger.info('DOM loaded, initializing application');
+            const app = new RecipeAssistantApp();
+        });
+    </script>
+    
+</body>
+</html>
